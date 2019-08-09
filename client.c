@@ -6,6 +6,8 @@
  * */
 #include "client.h"
 
+char *SERVER_ADDR = "127.0.0.1";
+
 int main()
 {
     menu();
@@ -52,16 +54,22 @@ void menu()
     return;
 }
 
+/*-------------------以下为TCP传输模块实现------------------*/
 /**
- * @brief 
- * @param
- * @return
+ * @brief 客户端TCP传输模块实现
+ * @param 无
+ * @return 无
  * */
 void transFileByTCP()
 {
-    printf("----------------------------\n");
+    // printf("----------------------------\n");
     printf("Welcome to tcp module!\n");
-    // menu();
+    
+    int client_sockfd;  /*TCP模式socket套接字 */
+    char buf_client[BUFFSIZE];  /*客户端缓冲区 */
+
+    init_tcp_client(SERVER_ADDR);   /*初始化建立TCP连接 */
+
     printf("传输完成！请选择您的操作(0~3)\n");
     return ;
 }
@@ -78,9 +86,9 @@ int init_tcp_client(char *ser_addr)
 
     memset(&server_addr, 0, sizeof(server_addr));
 
-    server_addr.sin_family = AF_INET;   //IPv4连接
-    server_addr.sin_addr.s_addr = inet_addr(ser_addr);  //服务器地址
-    server_addr.sin_port = htons(9877); //使用9877端口
+    server_addr.sin_family = AF_INET;   /*IPv4连接 */
+    server_addr.sin_addr.s_addr = inet_addr(ser_addr);  /*服务器地址 */
+    server_addr.sin_port = htons(TCP_PORT); /*TCP传输端口 */
 
     if (-1 == (sockfd = socket(AF_INET, SOCK_STREAM, 0)))
     {
@@ -97,6 +105,17 @@ int init_tcp_client(char *ser_addr)
     printf("success to connect!\n");
 
     return sockfd;
+}
+
+/**
+ * @brief TCP模式下客户端上传文件
+ * @param 
+ * @return 
+ * */
+int client_upload_tcp(char* filename)
+{
+    char new_filename[BUFFSIZE] = {0};  /*用于存储新的路径类型文件名 */
+    if (NULL == strchr(filename, '/')); /*没找到 */
 }
 
 /*--------------------以下为UDP传输模式代码实现---------------------------*/

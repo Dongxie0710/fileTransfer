@@ -15,7 +15,9 @@
 #include <arpa/inet.h>
 
 #define ERROR -1
+#define BUFFSIZE 2048   /*缓冲区长度 */
+#define TCP_PORT 9877   /*TCP传输端口 */
+#define UDP_PORT 9877   /*UDP传输端口 */
 
-
-/*以下内容为函数声明*/
-int init_tcp_server(char *ser_addr);
+/* 初始化服务器端 */
+int init_tcp_server(void);

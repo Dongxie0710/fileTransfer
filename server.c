@@ -14,11 +14,11 @@ int main()
 
 
 /**
- * @brief 客户端初始化建立TCP连接
- * @param ser_addr--服务器地址
+ * @brief 服务器端初始化建立TCP连接
+ * @param void
  * @return 返回socket套接字描述符
  * */
-int init_tcp_server(char *ser_addr)
+int init_tcp_server(void)
 {
     int sockfd;
     struct sockaddr_in server_addr;
