@@ -1,6 +1,6 @@
 /**
  * @file    client.h
- * @brief   å®¢æˆ·ç«¯å˜é‡ã€å‡½æ•°å£°æ˜ 
+ * @brief   ¿Í»§¶ËÍ·ÎÄ¼ş£¬º¯ÊıÉùÃ÷
  * @author  lizidong
  * @date    2019/8/6
  * */
@@ -13,17 +13,90 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <pthread.h>
 
-#define ERROR -1
-#define BUFFSIZE 2048   /*ç¼“å†²åŒºé•¿åº¦ */
-#define TCP_PORT 9877   /*TCPä¼ è¾“ç«¯å£ */
-#define UDP_PORT 9877   /*UDPä¼ è¾“ç«¯å£ */
+#define ERROR -1                    /* ·µ»Ø-1 */
+#define BUFFSIZE 1024               /* »º³åÇø´óĞ¡ */
+#define MCAST_DATA "Detect server"  /* ×é²¥·¢ËÍÏûÏ¢ÄÚÈİ */
+#define MCAST_ADDR "224.0.0.100"    /* Ò»¸ö¾Ö²¿Á¬½Ó¶à²¥µØÖ·£¬Â·ÓÉÆ÷²»½øĞĞ×ª·¢ */
+#define MCAST_PORT 9875             /* ¶à²¥¶Ë¿Ú ĞèÒª±£Ö¤¿Í»§¶ËºÍ·şÎñ¶ËÒ»ÖÂ */
 
-/*ä»¥ä¸‹å†…å®¹ä¸ºå‡½æ•°å£°æ˜*/
+#define TCP_TRANS_PORT 9877         /* TCP´«Êä¶Ë¿Ú ĞèÒª±£Ö¤¿Í»§¶ËºÍ·şÎñ¶ËÒ»ÖÂ */
+#define UDP_TRANS_PORT 9877         /* UDP´«Êä¶Ë¿Ú ĞèÒª±£Ö¤¿Í»§¶ËºÍ·şÎñ¶ËÒ»ÖÂ */
+
+#define ERROR_NO_INPUT -1           /* ¿ÕÊäÈë */
+#define ERROR_INVALID_INPUT -2      /* ·Ç·¨ÊäÈë */
+
+#define MAX_CMD_NUM 8                   /* ÏµÍ³ÃüÁîÊı£¬×î¶àÓĞ8¸ö */
+// char SysCommand[CMD_NUM][20];       /* ±£´æÏµÍ³ÃüÁî */
+char cmd[3][64];                    /* ¹¤×÷Ö¸Áî */
+/* ±£´æÏµÍ³Ö¸Áî */
+char* SysCommand[] = {"help", "detect", "connect", "ls_client", "ls_server",
+                        "download", "upload", "quit"};
+
+/* ¶¨ÒåÏµÍ³ÃüÁî */
+enum Sys_Command
+{
+    Sys_Help,       /* ´òÓ¡µ¼º½²Ëµ¥ */
+    Sys_Detect,     /* ·şÎñÆ÷Ì½²âÃüÁî */
+    Sys_Connect,    /* Á¬½Ó·şÎñÆ÷ */
+    Sys_Ls_Client,   /* ´òÓ¡¿Í»§¶ËÎÄ¼şÁĞ±í */
+    Sys_Ls_Server,  /* ´òÓ¡·şÎñ¶ËÎÄ¼şÁĞ±í */
+    Sys_Download,   /* ÏÂÔØÎÄ¼ş */
+    Sys_Upload,     /* ÉÏ´«ÎÄ¼ş */
+    Sys_Quit,       /* ÍË³öÏµÍ³ */
+};
+
+
+/* ÎÄ¼şĞÅÏ¢½á¹¹Ìå */
+struct FileInfo
+{
+    unsigned int fileSize;  /* ÎÄ¼ş´óĞ¡ */
+    char fileName[256];     /* ÎÄ¼şÃû */
+    char hashCode[41];      /* hashĞ£ÑéÂë */
+};
+
+/*************************ÒÔÏÂÎªº¯ÊıÉùÃ÷***************************/
+
+/* ´òÓ¡°ïÖú²Ëµ¥ */
 void menu();
-void transFileByTCP();
-/* åˆå§‹åŒ–å®¢æˆ·ç«¯å»ºç«‹TCP socketè¿æ¥ */
-int init_tcp_client(char *ser_addr);
-/*TCPæ¨¡å¼å®¢æˆ·ç«¯ä¸Šä¼ æ–‡ä»¶è‡³æœåŠ¡å™¨ */
-int client_upload_tcp(char* filename);
-void transFileByUDP();
+/* ´¦ÀíÊäÈë£¬½âÎöÃüÁî */
+int handle_input(char* str);
+
+
+/* ·şÎñÆ÷Ì½²âÄ£¿é£¬UDP×é²¥·½Ê½Ì½²â·şÎñÆ÷ */
+int detectServer();
+/* ´òÓ¡Êä³öUDPÌ½²â½á¹û£¬Î»ÓÚ×ÓÏß³ÌÖĞ */
+void print_detect_result(void* param);
+
+/* ¿Í»§¶ËconnectÄ£¿é½Ó¿Ú */
+void connect_client(char cmd_str[][64]);
+/* ¿Í»§¶Ë³õÊ¼»¯½¨Á¢TCPÁ¬½Ó */
+int init_tcp_client(char *ip_addr);
+/* ¿Í»§¶Ë³õÊ¼»¯½¨Á¢UDPÁ¬½Ó */
+int init_udp_client(char *ip_addr);
+
+/* »ñÈ¡¿Í»§¶Ë¿ÉÏÂÔØÎÄ¼şÁĞ±í */
+void ls_file_client();
+/* »ñÈ¡·şÎñ¶Ë¿ÉÏÂÔØÎÄ¼şÁĞ±í */
+void ls_file_server();
+
+/* ¿Í»§¶ËÉÏ´«Ä£¿éÊµÏÖ½Ó¿Ú */
+void interface_upload_client(char cmd_str[][64]);
+/* ¿Í»§¶ËÉÏ´«Ä£¿éÊµÏÖ½Ó¿Ú */
+void my_interface_upload_client(char cmd_str[][64]);
+/* ¿Í»§¶ËTCPÄ£Ê½ÏÂÉÏ´«ÎÄ¼şÖÁ·şÎñÆ÷ */
+int client_upload_tcp(char* filename, char* singlefilename);
+/* ¿Í»§¶ËUDPÄ£Ê½ÏÂÉÏ´«ÎÄ¼şÖÁ·şÎñÆ÷ */
+int client_upload_udp(char* filename, char* singlefilename);
+
+/* ¿Í»§¶ËÏÂÔØÄ£¿éÊµÏÖ½Ó¿Ú */
+void interface_download_client(char cmd_str[][64]);
+/* TCPÄ£Ê½ÏÂ´Ó·şÎñÆ÷ÏÂÔØÎÄ¼ş */
+int client_download_tcp(char* filename);
+/* UDPÄ£Ê½ÏÂ´Ó·şÎñÆ÷ÏÂÔØÎÄ¼ş */
+int client_download_udp(char* filename);
+
+
+
+int backlog_client_upload_udp(char* filename);

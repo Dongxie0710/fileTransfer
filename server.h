@@ -1,6 +1,6 @@
 /**
  * @file    server.h
- * @brief   æœåŠ¡ç«¯å˜é‡ã€å‡½æ•°å£°æ˜
+ * @brief   ·şÎñ¶Ë±äÁ¿¡¢º¯ÊıÉùÃ÷
  * @author  lizidong
  * @date    2019/8/6
  * */
@@ -13,11 +13,44 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <pthread.h>
 
 #define ERROR -1
-#define BUFFSIZE 2048   /*ç¼“å†²åŒºé•¿åº¦ */
-#define TCP_PORT 9877   /*TCPä¼ è¾“ç«¯å£ */
-#define UDP_PORT 9877   /*UDPä¼ è¾“ç«¯å£ */
+#define BUFFSIZE 1024                   /* »º³åÇø´óĞ¡ */
+#define UDP_MCAST_ADDR "224.0.0.100"    /* Ò»¸ö¾Ö²¿Á¬½Ó¶à²¥µØÖ·£¬Â·ÓÉÆ÷²»½øĞĞ×ª·¢ */
+#define UDP_MCAST_PORT 9875             /* ¶à²¥¶Ë¿Ú ĞèÒª±£Ö¤¿Í»§¶ËºÍ·şÎñ¶ËÒ»ÖÂ */
 
-/* åˆå§‹åŒ–æœåŠ¡å™¨ç«¯ */
+#define TCP_TRANS_PORT 9877             /* TCP´«Êä¶Ë¿Ú ĞèÒª±£Ö¤¿Í»§¶ËºÍ·şÎñ¶ËÒ»ÖÂ */
+
+int UDP_TRANS_PORT = 9877;             /* UDP´«Êä¶Ë¿Ú ĞèÒª±£Ö¤¿Í»§¶ËºÍ·şÎñ¶ËÒ»ÖÂ */
+
+/* ·şÎñÆ÷¼ÓÈë×é²¥×é£¬UDPÊµÏÖÏìÓ¦×é²¥ĞÅÏ¢ */
+int respon_mulcast_init();
+/* ·şÎñ¶ËTCPÄ£Ê½³õÊ¼»¯£¬½¨Á¢socketÁ¬½Ó */
 int init_tcp_server(void);
+/* ·şÎñ¶ËUDPÁ¬½Ó³õÊ¼»¯£¬½¨Á¢socketÁ¬½Ó */
+int init_udp_server();
+
+/* ¼àÌıTCP´«Êä¶Ë¿Ú£¬µÈ´ı¿Í»§¶ËTCPÁ¬½Ó */
+void wait_tcp_connect(void* param);
+/* TCPÁ¬½Ó´¦ÀíÏß³Ì£¬acceptTCP¿Í»§¶Ëºó´´½¨ */
+void deal_recv_tcp(void* param);
+/* ¸ù¾İÏûÏ¢ÀàĞÍ¶ÔÊÕµ½µÄTCPÏûÏ¢½øĞĞ´¦Àí */
+void handle_tcp_recv_msg(int sockfd, char* str);
+/* ´¦ÀíÊÕµ½µÄlsÃüÁî,TCP´«Êä */
+void ls_file(int sockfd);
+/* ´¦ÀíTCPÄ£Ê½ÎÄ¼şÏÂÔØ²Ù×÷ */
+void tcp_download_func(int sockfd, char msg[][BUFFSIZE]);
+/* ´¦ÀíTCPÄ£Ê½ÎÄ¼şÉÏ´«²Ù×÷ */
+void tcp_upload_func(int sockfd, char msg[][BUFFSIZE]);
+
+/* ¼àÌıUDP´«Êä¶Ë¿Ú£¬µÈ´ı¿Í»§¶ËUDPÁ¬½Ó */
+void wait_udp_connect(void* param);
+/* UDPÁ¬½Ó´¦ÀíÏß³Ì */
+void deal_recv_udp(void* param);
+/* ¸ù¾İÏûÏ¢ÀàĞÍ¶ÔÊÕµ½µÄUDPÏûÏ¢½øĞĞ´¦Àí */
+void handle_udp_recv_msg(int sockfd, struct sockaddr_in client_addr, char* str);
+/* ´¦ÀíUDPÄ£Ê½ÎÄ¼şÏÂÔØ²Ù×÷ */
+void udp_download_func(int sockfd, struct sockaddr_in client_addr, char msg[][BUFFSIZE]);
+/* ´¦ÀíUDPÄ£Ê½ÎÄ¼şÉÏ´«²Ù×÷ */
+void udp_upload_func(int sockfd, struct sockaddr_in client_addr, char msg[][BUFFSIZE]);

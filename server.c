@@ -1,22 +1,142 @@
 /**
  * @file    server.c
- * @brief   æœåŠ¡ç«¯å®ç° 
+ * @brief   ·şÎñ¶Ëº¯ÊıÊµÏÖ 
  * @author  lizidong
  * @date    2019/8/6
  * */
 #include "server.h"
+#include "tools.h"
 
-int main()
+char ser_place_of_file[BUFFSIZE];   /* ´æ·Å·şÎñ¶ËÎÄ¼ş´æ´¢Â·¾¶ */
+
+int main(int argc, char **argv)
 {
+    /* Ä¬ÈÏÔÚÔ´ÎÄ¼şÍ¬Ä¿Â¼ÏÂ´´½¨serverFileÎÄ¼ş¼Ğ */
+    strcpy(ser_place_of_file, "./serverFile/");
+    mk_folder_of_file(ser_place_of_file);
 
-    return 0;
+    /* UDP×é²¥¼àÌıÏß³Ì */
+    pthread_t mulcast_thread;
+    pthread_create(&mulcast_thread, NULL, (void *)respon_mulcast_init, NULL);
+
+    /* TCP´«Êä¶Ë¿Ú¼àÌıÏß³Ì */
+    int tcp_trans_sockfd = init_tcp_server();
+    if (tcp_trans_sockfd > 0)
+    {
+        pthread_t tcp_trans_thread;
+        pthread_create(&tcp_trans_thread, NULL, (void *)wait_tcp_connect, &tcp_trans_sockfd);
+    }
+
+    int udp_trans_sockfd = init_udp_server();
+    if (udp_trans_sockfd > 0)
+    {
+        pthread_t udp_trans_thread;
+        pthread_create(&udp_trans_thread, NULL, (void *)wait_udp_connect, &udp_trans_sockfd);
+    }
+
+    /* Ö÷Ïß³Ì */
+    char buf[BUFFSIZE];
+    while (1)
+    {
+        scanf("%s", buf);
+    }
+    // return 0;
 }
 
 
 /**
- * @brief æœåŠ¡å™¨ç«¯åˆå§‹åŒ–å»ºç«‹TCPè¿æ¥
+ * @brief ·şÎñÆ÷¶Ë¼ÓÈë×é²¥£¬ÏìÓ¦×é²¥ĞÅÏ¢
  * @param void
- * @return è¿”å›socketå¥—æ¥å­—æè¿°ç¬¦
+ * @return socketÌ×½Ó×Ö±êÊ¶·û
+ * */
+int respon_mulcast_init()
+{
+    /* ĞÂ½¨socket ÓÃÓÚ½ÓÊÕUDP×é²¥ÏûÏ¢£¬ÏìÓ¦·şÎñÆ÷Ì½²â */
+    int sockfd;
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) 
+    {
+        perror("fail to create socket(udp_respon_detect)");
+        return ERROR;
+    }
+    
+    /* ³õÊ¼»¯µØÖ·Îª0 */
+    struct sockaddr_in my_mulcast_addr;
+    memset(&my_mulcast_addr, 0, sizeof(my_mulcast_addr));   /* ÒÔ0Ìî³ä */
+    my_mulcast_addr.sin_family = AF_INET;
+    my_mulcast_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    my_mulcast_addr.sin_port = htons(UDP_MCAST_PORT);
+
+    /* °ó¶¨Ì×½Ó×ÖºÍ¶Ë¿Ú */
+    if (-1 == bind(sockfd, (struct sockaddr *)&my_mulcast_addr, sizeof(my_mulcast_addr)))
+    {
+        perror("fail to bind (udp_mulcast)");
+        return ERROR;
+    }
+
+    /* ³õÊ¼»¯×é²¥½á¹¹Ìå±äÁ¿ */
+    struct ip_mreq mreq;
+    memset(&mreq, 0x00, sizeof(struct ip_mreq));
+    mreq.imr_multiaddr.s_addr = inet_addr(UDP_MCAST_ADDR);  /* ÉèÖÃ×é²¥µØÖ· */
+    mreq.imr_interface.s_addr = htonl(INADDR_ANY);  /* ÉèÖÃÍøÂç½Ó¿ÚµØÖ·ĞÅÏ¢ */
+    
+    /* ¼ÓÈë×é²¥×é */
+    if (-1 == setsockopt(sockfd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq)))
+    {
+        perror("fail to add membership (join the mulcast)");
+        return ERROR;
+    }
+
+    /* ½ûÖ¹Êı¾İ»Ø´«µ½±¾µØ»·»Ø½Ó¿Ú */
+    unsigned char loop = 0;
+    if (-1 == setsockopt(sockfd, IPPROTO_IP, IP_MULTICAST_LOOP, &loop, sizeof(loop)))
+    {
+        perror("Error: set data loop");
+        return ERROR;
+    }
+
+
+    struct sockaddr_in cli_addr;    /* ±£´æ¿Í»§¶ËĞÅÏ¢ */
+    char recv_msg[BUFFSIZE + 1];    /* ½ÓÊÕÏûÏ¢»º´æ */
+    unsigned int recv_size = 0;     /* Êµ¼ÊÊÕµ½µÄÏûÏ¢´óĞ¡ */
+    unsigned int addr_size = sizeof(struct sockaddr_in);
+    /* Ñ­»·½ÓÊÕ×é²¥ÏûÏ¢ */
+    while (1)
+    {
+        memset(recv_msg, 0x00, BUFFSIZE + 1);
+        recv_size = recvfrom(sockfd, recv_msg, BUFFSIZE, 0, (struct sockaddr *)&cli_addr, &addr_size);
+        if (recv_size < 0)
+        {
+            perror("recvfrom error (udp_detect)");
+            return ERROR;
+        }
+        else 
+        {
+            recv_msg[recv_size] = '\0'; /* ³É¹¦½ÓÊÕÊı¾İ±¨£¬Ä©Î²¼Ó½áÊø·û */
+
+            /* »ñÈ¡ipºÍport */
+            char ip_str[INET_ADDRSTRLEN];   /* IPv4µØÖ·£¬Ä¬ÈÏÎª16 */
+            inet_ntop(AF_INET, &(cli_addr.sin_addr), ip_str, sizeof(ip_str));
+            int port = ntohs(cli_addr.sin_port);
+            
+            /* ´òÓ¡Êä³öÒÑÊÕµ½Ì½²âĞÅÏ¢ */
+            printf("Received from %s--%d : [%s]\n", ip_str, port, recv_msg);
+            /* Ïò¿Í»§¶Ë»Ø¸´Êı¾İ£¬µ¥²¥ */
+            char response[BUFFSIZE + 1] = "detect response, ok!";
+            if (sendto(sockfd, response, strlen(response), 0, (struct sockaddr *)&cli_addr, addr_size) < 0)
+            {
+                perror("sendto error (response for detect)");
+                return ERROR;
+            }
+        }
+    }
+
+}
+
+/**
+ * @brief ·şÎñ¶ËTCPÄ£Ê½³õÊ¼»¯£¬½¨Á¢socketÁ¬½Ó
+ * @param void
+ * @return socketÌ×½Ó×Ö±êÊ¶·û
  * */
 int init_tcp_server(void)
 {
@@ -26,26 +146,647 @@ int init_tcp_server(void)
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    server_addr.sin_port = htons(9877);
+    server_addr.sin_port = htons(TCP_TRANS_PORT);
 
     if (-1 == (sockfd = socket(AF_INET, SOCK_STREAM, 0)))
     {
-        perror("fail to socket");
+        perror("\tfail to create tcp socket");
         return ERROR;
     }
 
     if (-1 == (bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr))))
     {
-        perror("fail to bind");
+        perror("\tfail to bind");
         return ERROR;
     }
 
-    if (-1 == (listen(sockfd, 0))) 
+    int backlog = 10000;    /* Î¬»¤listen¶ÓÁĞ´óĞ¡Îª10000 */
+    if (-1 == (listen(sockfd, backlog))) 
     {
-        perror("fail to listen");
+        perror("\tfail to listen");
         return ERROR;
     }
 
-    printf("succeed to create connection!\n");
+    // printf("succeed to init tcp socket!\n");
     return sockfd;
+}
+
+/**
+ * @brief ·şÎñ¶ËUDPÁ¬½Ó³õÊ¼»¯£¬½¨Á¢socketÁ¬½Ó
+ * @param void
+ * @return socketÌ×½Ó×Ö±êÊ¶·ûsockfd
+ * */
+int init_udp_server()
+{
+    int sockfd;
+    if (-1 == (sockfd = socket(AF_INET, SOCK_DGRAM, 0)))
+    {
+        perror("\tfail to create udp socket");
+        return ERROR;
+    }
+
+    struct sockaddr_in server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    server_addr.sin_port = htons(UDP_TRANS_PORT);
+    /* °ó¶¨¶Ë¿Ú */
+    if (-1 == bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)))
+    {
+        perror("\tfail to bind udp socket");
+        return ERROR;
+    }
+
+    return sockfd;
+}
+
+/**
+ * @brief ¼àÌıTCP´«Êä¶Ë¿Ú£¬µÈ´ı¿Í»§¶ËTCPÁ¬½Ó
+ *         ³É¹¦acceptÒ»¸ötcpÁ¬½Óºó£¬´´½¨Ò»¸öÏß³ÌÈ¥´¦Àí
+ * @param server¶ËTCP´«Êäsockfd
+ * @return void
+ * */
+void wait_tcp_connect(void* param)
+{
+    int serv_sockfd = *((int *)param);
+    while (1)
+    {
+        int cli_sockfd;
+        struct sockaddr_in client_addr;
+        memset(&client_addr, 0, sizeof(client_addr));
+        int addr_size = sizeof(client_addr);
+        if (-1 == (cli_sockfd = accept(serv_sockfd, (struct sockaddr *)&client_addr, &addr_size)))
+        {
+            perror("\ttcp accept error");
+            return ;
+        }
+
+        /* ³É¹¦acceptÒ»¸ötcp¿Í»§¶Ë£¬ÎªÆä´´½¨Ò»¸ö´¦ÀíÏûÏ¢Ïß³Ì */
+        pthread_t tcp_recv_thread;
+        pthread_create(&tcp_recv_thread, NULL, (void *)deal_recv_tcp, &cli_sockfd);
+        /* ÉèÖÃ·ÖÀëÌ¬£¬Ê¹Ã¿¸öÏß³ÌÍË³öºó×Ô¶¯ÊÍ·Å×ÊÔ´ */
+        pthread_detach(tcp_recv_thread);
+    }
+}
+
+/**
+ * @brief TCPÁ¬½Ó´¦ÀíÏß³Ì£¬acceptTCP¿Í»§¶Ëºó´´½¨
+ * @param ¿Í»§¶ËTCP´«Êäsockfd
+ * @return void
+ * */
+void deal_recv_tcp(void* param)
+{
+    int cli_sockfd = *((int *)param);
+    char buff[BUFFSIZE + 1] = {0};  /* ³õÊ¼»¯»º´æÎª0 */
+    int recv_size;
+    while (1)
+    {
+        recv_size = recv(cli_sockfd, buff, BUFFSIZE, 0);
+        if (recv_size <= 0)
+        {
+            /* ¹Ø±ÕsocketÍË³öÏß³Ì ÒÑÉèÖÃ·ÖÀëÌ¬£¬ÍË³ö¼´ÊÍ·Å×ÊÔ´ */
+            close(cli_sockfd);  /* ±ÜÃâ¹ı¶àsocket´¦ÓÚclose_wait×´Ì¬ */
+            pthread_exit(0);
+            return ;
+        }
+        buff[recv_size] = '\0';
+        handle_tcp_recv_msg(cli_sockfd, buff);
+    }
+}
+
+/**
+ * @brief ¸ù¾İÏûÏ¢ÀàĞÍ¶ÔÊÕµ½µÄTCPÏûÏ¢½øĞĞ´¦Àí
+ * @param ¿Í»§¶ËTCP´«Êäsockfd   message×Ö·û´®
+ * @return void
+ * */
+void handle_tcp_recv_msg(int sockfd, char* str)
+{
+    /* ÉÏ´«Ö¸Áî ·Ö¸îstr £º msg_list´æ·ÅÊı¾İ£ºmsg_type, filename, filesize, hashcode */
+    /* ÏÂÔØÖ¸Áî ·Ö¸îstr £º msg_list´æ·ÅÊı¾İ£ºmsg_type, filename, fileset, hashcode */
+    int i = 0;
+    // char seg[] = ",";
+    char msg_list[4][BUFFSIZE] = {0};
+    char *substr = strtok(str, ",");    /* ÓÃ¡°£¬¡±·Ö¸î×Ö·û´®str */
+    while (NULL != substr)
+    {
+        strcpy(msg_list[i++], substr);
+        substr = strtok(NULL, ",");
+    }
+
+    switch (atoi(msg_list[0]))
+    {
+        case MSG_TCP_LS :
+            ls_file(sockfd);
+            break;
+        case MSG_TCP_DOWNLOAD :
+            tcp_download_func(sockfd, msg_list);
+            break;
+        case MSG_TCP_UPLOAD :
+            tcp_upload_func(sockfd, msg_list);
+            break;
+        default :
+            break;
+    }
+}
+
+/**
+ * @brief ´¦ÀíÊÕµ½µÄlsÃüÁî,TCP´«Êä
+ * @param sockfd
+ * @return void
+ * */
+void ls_file(int sockfd)
+{
+    DIR *dir;
+    struct dirent *ptr;
+
+    char respon_ls[2 * BUFFSIZE] = {0};
+    strcpy(respon_ls, "file list in server as follow:\n");
+    char default_respon_ls[2 * BUFFSIZE];
+    strcpy(default_respon_ls, "No available file in server ! \n");
+
+    if (NULL == (dir = opendir(ser_place_of_file)))
+    {
+        send(sockfd, default_respon_ls, strlen(default_respon_ls), 0);
+        return ;
+    }
+
+    while ((ptr = readdir(dir)) != NULL)
+    {
+        /* current dir or parrent dir */
+        if (strcmp(ptr->d_name, ".") == 0 || strcmp(ptr->d_name, "..") == 0)
+        {
+            continue;
+        }
+        else if (ptr->d_type == 8)  /* file */
+        {
+            sprintf(respon_ls, "%s\r\n%s", respon_ls, ptr->d_name);
+        }
+        else
+        {
+            continue;
+        }
+        
+    }
+    closedir(dir);
+
+    if (0 == strcmp(respon_ls, "file list in server as follow:\n"))
+    {
+        send(sockfd, default_respon_ls, strlen(default_respon_ls), 0);
+    }
+    else
+    {
+        send(sockfd, respon_ls, strlen(respon_ls), 0);
+    }
+      
+}
+
+/**
+ * @brief ´¦ÀíTCPÄ£Ê½ÎÄ¼şÏÂÔØ²Ù×÷
+ *        respon_msg--"flag, hash, size"
+ * @param sockfd--tcpÁ¬½ÓÌ×½Ó×ÖÃèÊö·û msg[][]--½ÓÊÕµ½µÄÏûÏ¢
+ * @return void
+ * */
+void tcp_download_func(int sockfd, char msg[][BUFFSIZE])
+{
+    int file_set = atoi(msg[2]);    /* ´Ó¸ÃÎ»ÖÃ¼ÌĞø·¢ËÍ,¶Ïµã */
+    char save_file[BUFFSIZE] = {0}; /* ÎÄ¼ş´æ·ÅÎ»ÖÃ */
+    sprintf(save_file, "%s%s", ser_place_of_file, msg[1]);
+    char respon_msg[BUFFSIZE] = {0};
+    strcpy(respon_msg, "0,0,0");    /* Ä¬ÈÏÖµ£¨ÎÄ¼ş²»´æÔÚ£© */
+    /* ÎÄ¼ş²»´æÔÚ */
+    if (-1 == access(save_file, F_OK))
+    {
+        send(sockfd, respon_msg, BUFFSIZE, 0);
+    }
+    else
+    {
+        struct stat s_buf;
+        stat(save_file, &s_buf);    /* »ñÈ¡×ÊÔ´ĞÅÏ¢ */
+        if (S_ISDIR(s_buf.st_mode))
+        {
+            /* Ä¿Â¼ */
+            send(sockfd, respon_msg, BUFFSIZE, 0);
+            return ;
+        }
+
+        FILE *fp;
+        char hashCode[41];  /* ±£´æ¼ÆËãµÄ¹şÏ£Öµ */
+        /* ´ıÀ©³ä£¬Ìí¼ÓÎÄ¼şĞ£Ñéº¯Êı */
+        strcpy(hashCode, MY_FAKE_HASHCODE);
+        /* msg[3]--hashcode, ĞèÒªĞø´« */
+        if (0 == strcmp(hashCode, msg[3]))
+        {
+            sprintf(respon_msg, "%d,%s,%d", 2, hashCode, get_file_size(save_file));
+            send(sockfd, respon_msg, BUFFSIZE, 0);
+        }
+        /* ĞÂÏÂÔØÈÎÎñ£¬²»ĞèÒªĞø´« */
+        else 
+        {
+            sprintf(respon_msg, "%d,%s,%d", 1, hashCode, get_file_size(save_file));
+            send(sockfd, respon_msg, BUFFSIZE, 0);
+            file_set = 0;   /* Õë¶Ô¸²¸ÇµÄÇé¿ö */
+        }
+
+        fp = fopen(save_file, "rb");
+        char buf[BUFFSIZE + 1] = {0};
+        fseek(fp, file_set, SEEK_SET);  /* ¶¨Î»µ½¿Í»§¶ËÉÏ´«µÄÆ«ÒÆÎ»ÖÃ */
+        int readSize = 0;   /* ¶ÁÈ¡³¤¶È */
+        int sendSize = 0;   /* ·¢ËÍ³¤¶È */
+        int totalTrans = 0; /* ¼ÇÂ¼ÒÑ¾­·¢ËÍÁË¶àÉÙ */
+        while (1)
+        {
+            readSize = fread(buf, 1, BUFFSIZE, fp);
+            if (0 == readSize)
+            {
+                break;
+            }
+            /* ¿Í»§¶Ë¶Ï¿ª£¬·şÎñ¶ËÏòÒ»¸öÊ§Ğ§µÄsocket·¢ËÍÊı¾İÊ±£¬µ×²ãÅ×³öSIGIPEĞÅºÅ
+            * ¸ÃĞÅºÅÈ±Ê¡´¦Àí·½Ê½ÎªÍË³ö·şÎñÆ÷½ø³Ì£¬ÉèÖÃMSG_NOSIGNALºöÂÔ¸ÃĞÅºÅ
+            * */
+            sendSize = send(sockfd, (const char *)buf, readSize, MSG_NOSIGNAL);
+            if (-1 == sendSize)
+            {
+                /* ·¢ËÍ³ö´í£¬¿Í»§¶ËÒì³£¶Ï¿ª */
+                /* ¶ÏµãĞø´«¹¦ÄÜÔÚÊı¾İ½ÓÊÕ¶ËÊµÏÖ */
+                printf("\tDisconnect to client!\n");
+                fclose(fp);
+                return ;
+            }
+            totalTrans += sendSize;
+        }
+        printf("Complete send! Total trans %d bytes\n", totalTrans);
+        fclose(fp);
+    }
+    
+}
+
+/**
+ * @brief ´¦ÀíTCPÄ£Ê½ÎÄ¼şÉÏ´«²Ù×÷
+ * @param sockfd--tcpÁ¬½ÓÌ×½Ó×ÖÃèÊö·û msg[][]--½ÓÊÕµ½µÄÏûÏ¢
+ * @return void
+ * */
+void tcp_upload_func(int sockfd, char msg[][BUFFSIZE])
+{
+    int flag = 0;   /* Ä¬ÈÏÎŞĞèĞø´« */
+    int bp_size = 0;    /* ÓÃÓÚfseek¶¨Î»¶Ïµã */
+
+    /* ²éÕÒÊÇ·ñ´æÔÚ¶ÏµãÎÄ¼ş */
+    char bp_file[BUFFSIZE];
+    sprintf(bp_file, "%s.%s.bot.break", ser_place_of_file, msg[1]);
+    char tmp_zero[BUFFSIZE];    /* ÓÃÓÚÏò¿Í»§¶Ë·¢ËÍ */
+    strcpy(tmp_zero, "0");
+    if (access(bp_file, F_OK) != -1)
+    {
+        /* ÎÄ¼ş´æÔÚ */
+        FILE *fp_bp;
+        fp_bp = fopen(bp_file, "r");
+        char tmp_size[BUFFSIZE];
+        char tmp_hashcode[BUFFSIZE];
+        fgets(tmp_size, BUFFSIZE, fp_bp);
+        tmp_size[strlen(tmp_size) - 1] = '\0';
+        fgets(tmp_hashcode, BUFFSIZE, fp_bp);
+        fclose(fp_bp);
+        if (0 == strcmp(tmp_hashcode, msg[3]))
+        {
+            /* ÎÄ¼şÃûºÍ¹şÏ£ÖµÏàÍ¬£¬Ğø´« */
+            flag = 1;
+            bp_size = atoi(tmp_size);
+            send(sockfd, tmp_size, BUFFSIZE, 0);
+            remove(bp_file);
+        }
+        else
+        {
+            /* Í¬Ãû£¬Ö±½Ó¸²¸Ç */
+            send(sockfd, tmp_zero, BUFFSIZE, 0);
+        }
+    }
+    else
+    {
+        /* ÎÄ¼ş²»´æÔÚ */
+        send(sockfd, tmp_zero, BUFFSIZE, 0);
+    }
+
+    FILE *fp;
+    char save_file[BUFFSIZE];   /* ´æ´¢Â·¾¶+ÎÄ¼şÃû */
+    sprintf(save_file, "%s%s", ser_place_of_file, msg[1]);
+    if (0 == flag)   
+    {
+        /* ²»ĞèÒªĞø´« */
+        fp = fopen(save_file, "wb+");    /* ¶ş½øÖÆ´ò¿ª£¬ ²Á³ıÔ´ÎÄ¼ş */
+    }
+    else
+    {
+        fp = fopen(save_file, "rb+");   /* ¶ş½øÖÆ´ò¿ª£¬ ²»²Á³ıÔ´ÎÄ¼ş */
+    }
+    
+    int totalBytes = 0; /* ÓÃÓÚÍ³¼Æ×Ü×Ö½ÚÊı */
+    fseek(fp, bp_size, SEEK_SET);   /* Ìø×ªµ½Ö¸¶¨Î»ÖÃ£¨¶Ïµã£© */
+    while (1)
+    {
+        char buf[BUFFSIZE] = {0};
+        int len = recv(sockfd, (char *)buf, BUFFSIZE, 0);
+        if (0 == len)
+        {
+            /* ¿Í»§¶ËÒì³£¶Ï¿ª */
+            fclose(fp);
+
+            /* ´´½¨¶ÏµãÎÄ¼ş£¬ ¸ñÊ½Îª.filename.bot.break Òş²Ø£¬¶ÔÓÃ»§Í¸Ã÷ */
+            FILE *fp_break;
+            char break_file[BUFFSIZE];
+            sprintf(break_file, "%s.%s.bot.break", ser_place_of_file, msg[1]);
+            /* ¶ÔÍ¬ÃûÎÄ¼şµÄ¶ÏµãĞø´«£¬Ö»´¦ÀíºóÃæµÄĞø´«£¬Ç°ÃæµÄ±»ºóÃæµÄÍ¬ÃûÎÄ¼ş¸²¸Ç */
+            fp_break = fopen(break_file, "w+");
+            char str_totalBytes[BUFFSIZE];
+            sprintf(str_totalBytes, "%d", totalBytes);
+            fwrite(str_totalBytes, 1, strlen(str_totalBytes), fp_break);    /* Ğ´ÈëÒÑ½ÓÊÕ³¤¶È */
+            fwrite("\r\n", 1, 2, fp_break); /* »»ĞĞ */
+            fwrite(msg[3], 1, strlen(msg[3]), fp_break);  /* Ğ´Èëhashcode */
+            fclose(fp_break);
+            break;
+        }
+
+        fwrite(buf, 1, len, fp);
+
+        totalBytes += len;
+        /* Ğ´Èë×Ö½ÚÊıÏàÍ¬£¬µ«¿ÉÄÜ´æÔÚ°ü±»´Û¸ÄµÄÇé¿ö£¬ĞèĞ£Ñéhashcode */
+        if (totalBytes == (atoi(msg[2]) - bp_size))
+        {
+            fclose(fp);
+            char hashCode[41];
+            char respons_msg[BUFFSIZE];
+            /* ÎÄ¼şĞ£ÑéÄ£¿é´ıÊµÏÖ */
+            // strcpy(hashCode, get_sha1_from_file(save_file)); /* ±¾µØ¼ÆËãĞ´ÈëÍê³ÉµÄÎÄ¼şµÄhashcode */
+            strcpy(hashCode, MY_FAKE_HASHCODE);
+            
+            if (0 == strcmp(hashCode, msg[3]))
+            {
+                /* ·ÇĞø´«·µ»Ø */
+                if (0 == flag)   
+                {
+                    sprintf(respons_msg, "File Complete True; Sha1: %s", hashCode);
+                }
+                /* Ğø´«·µ»Ø */
+                else
+                {
+                    sprintf(respons_msg, "Continue File Complete True; Sha1: %s", hashCode);
+                }
+                send(sockfd, respons_msg, BUFFSIZE, 0);
+            }
+            else
+            {
+                /* ·ÇĞø´«·µ»Ø */
+                if (0 == flag)   
+                {
+                    sprintf(respons_msg, "File Complete False; Sha1: %s", hashCode);
+                }
+                /* Ğø´«·µ»Ø */
+                else
+                {
+                    sprintf(respons_msg, "Continue File Complete False; Sha1: %s\n", hashCode);
+                }
+                send(sockfd, respons_msg, BUFFSIZE, 0);
+            }
+            
+            break;
+        }
+    }
+    
+}
+
+/**
+ * @brief ¼àÌıUDP´«Êä¶Ë¿Ú£¬µÈ´ı¿Í»§¶ËUDPÁ¬½Ó
+ *         ÎªÃ¿¸ö¿Í»§´´½¨Ò»¸öÏß³ÌÈ¥´¦Àí£¬Ã¿¸ö¿Í»§¶ÔÓ¦Ò»¸ö¶Ë¿Ú
+ * @param server¶ËUDP´«Êäsockfd
+ * @return void
+ * */
+void wait_udp_connect(void* param)
+{
+    int serv_sockfd = *((int *)param);
+    while (1)
+    {
+        char tmp_msg[BUFFSIZE] = {0};   /* ´æ·ÅÀ´×Ô¿Í»§¶ËµÄÏûÏ¢£¬²»×öÆäËû´¦Àí */
+
+        // int cli_sockfd;
+        struct sockaddr_in client_addr;
+        struct sockaddr_in *tmp_client_addr;
+        memset(&client_addr, 0, sizeof(client_addr));
+        int addr_size = sizeof(client_addr);
+
+        int re = recvfrom(serv_sockfd, tmp_msg, BUFFSIZE, 0, (struct sockaddr *)&client_addr, &addr_size);
+        if (-1 == re)
+        {
+            perror("recvfrom error");
+            return ;
+        }
+        
+        tmp_client_addr = malloc(sizeof(struct sockaddr_in));   /* Ïß³Ì½á¹¹ÌåĞèÒª·ÖÅäµ½¶ÑÉÏ */
+        *tmp_client_addr = client_addr;
+
+        /* ÉèÖÃ·ÖÀëÌ¬£¬Ê¹Ã¿¸öÏß³ÌÔÚÍË³öºó×Ô¶¯ÊÍ·Å×ÊÔ´ */
+        pthread_t udp_recv_thread;
+        pthread_create(&udp_recv_thread, NULL, (void *)deal_recv_udp, tmp_client_addr);
+        pthread_detach(udp_recv_thread);
+    }
+}
+
+/**
+ * @brief ÎªÃ¿¸öudp¿Í»§¶Ë´´½¨Ò»¸ö´¦ÀíÏß³Ì
+ * @param ¸ÃUDP¿Í»§¶ËµÄsockaddr_in½á¹¹Ìå
+ * @return void
+ * */
+void deal_recv_udp(void* param)
+{
+    struct sockaddr_in client_addr = *((struct sockaddr_in *)param);
+    free(param);
+
+    /* ´´½¨ĞÂµÄsockfd, ÎªÃ¿¸öUDP¿Í»§¶Ë·ÖÅäĞÂµÄ¶Ë¿Ú */
+    int sockfd;
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    struct sockaddr_in new_server_addr;
+    memset(&new_server_addr, 0, sizeof(new_server_addr));
+    new_server_addr.sin_family = AF_INET;
+    new_server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    new_server_addr.sin_port = htons(++UDP_TRANS_PORT);
+    if (-1 == (bind(sockfd, (struct sockaddr *)&new_server_addr, sizeof(new_server_addr))))
+    {
+        perror("\tbind error\n");
+        return ;
+    }
+
+    /* Ê¹ÓÃĞÂ½¨Á¢µÄsockfdÏò¿Í»§¶Ë·¢ËÍÏûÏ¢ */
+    char new_ser_msg[BUFFSIZE] = "A new udp server for client";
+
+    int se;
+    se = sendto(sockfd, new_ser_msg, strlen(new_ser_msg), 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
+    if (-1 == se)
+    {
+        perror("sendto error");
+        close(sockfd);
+        return ;
+    }
+
+    /* µÈ´ı´¦Àí¿Í»§¶Ë»Ø´«µÄÏûÏ¢ */
+    char tmp_msg[BUFFSIZE] = {0};
+    int addrSize = sizeof(client_addr);
+    while (1)
+    {
+        se = recvfrom(sockfd, tmp_msg, BUFFSIZE, 0, (struct sockaddr *)&client_addr, &addrSize);
+        if (-1 == se)
+        {
+            perror("recvfrom error");
+            close(sockfd);
+            return ;
+        }
+        handle_udp_recv_msg(sockfd, client_addr, tmp_msg);
+    }
+}
+
+/**
+ * @brief ¸ù¾İÏûÏ¢ÀàĞÍ¶ÔÊÕµ½µÄUDPÏûÏ¢½øĞĞ´¦Àí
+ *        ·Ö¸îstr: ÉÏ´«ÏûÏ¢ msg_list--Msg_Type, filename, filesize, hashcode
+ *                ÏÂÔØÏûÏ¢ msg_list--Msg_Type, filename
+ * @param sockfd, sockaddr_in--¿Í»§¶ËµØÖ·, str--ÏûÏ¢×Ö´®
+ * @return void
+ * */
+void handle_udp_recv_msg(int sockfd, struct sockaddr_in client_addr, char* str)
+{
+    int i = 0;
+    // char seg[] = ",";
+    char msg_list[4][BUFFSIZE] = {0};
+    char *substr = strtok(str, ",");    /* ÓÃ¡°£¬¡±·Ö¸î×Ö·û´®str */
+    while (NULL != substr)
+    {
+        strcpy(msg_list[i++], substr);
+        substr = strtok(NULL, ",");
+    }
+
+    /* Ñ¡Ôñ²Ù×÷ */
+    switch (atoi(msg_list[0]))
+    {
+        case MSG_UDP_DOWNLOAD :
+            udp_download_func(sockfd, client_addr, msg_list);
+            break;
+        case MSG_UDP_UPLOAD :
+            udp_upload_func(sockfd, client_addr, msg_list);
+            break;
+        default :
+            break;
+    }
+}
+
+/**
+ * @brief ´¦ÀíUDPÄ£Ê½ÎÄ¼şÏÂÔØ²Ù×÷
+ * @param sockfd--tcpÁ¬½ÓÌ×½Ó×ÖÃèÊö·û, sockaddr_in--¿Í»§¶ËµØÖ·, msg[][]--½ÓÊÕµ½µÄÏûÏ¢
+ * @return void
+ * */
+void udp_download_func(int sockfd, struct sockaddr_in client_addr, char msg[][BUFFSIZE])
+{
+    char save_file[BUFFSIZE] = {0}; /* ±£´æÎÄ¼şÊµ¼Ê´æ·ÅÎ»ÖÃ */
+    sprintf(save_file, "%s%s", ser_place_of_file, msg[1]);
+
+    char respon_msg[BUFFSIZE] = {0};
+    strcpy(respon_msg, "0,0,0");    /* Ä¬ÈÏÖµ£¨ÎÄ¼ş²»´æÔÚ£© */
+    if ((-1 == access(save_file, F_OK)))
+    {
+        sendto(sockfd, respon_msg, BUFFSIZE, 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
+    }
+    else
+    {
+        struct stat s_buf;
+        stat(save_file, &s_buf);    /* »ñÈ¡ÎÄ¼şĞÅÏ¢ */
+        if (S_ISDIR(s_buf.st_mode))
+        {
+            /* dir */
+            sendto(sockfd, respon_msg, BUFFSIZE, 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
+            return ;
+        }
+
+        FILE *fp;
+        char hashCode[41];  /* ±£´æ¼ÆËãµÄ¹şÏ£Öµ */
+        /* ´ıÀ©³ä£¬Ìí¼ÓÎÄ¼şĞ£Ñéº¯Êı */
+        strcpy(hashCode, MY_FAKE_HASHCODE);
+
+        memset(respon_msg, 0, sizeof(respon_msg));
+        sprintf(respon_msg, "%d,%s,%d", 1, hashCode, get_file_size(save_file));
+        sendto(sockfd, respon_msg, BUFFSIZE, 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
+
+        fp = fopen(save_file, "rb");
+        char buf[BUFFSIZE + 1] = {0};
+        
+        int readSize = 0;   /* ¶ÁÈ¡³¤¶È */
+        int sendSize = 0;   /* ·¢ËÍ³¤¶È */
+        int totalTrans = 0; /* ¼ÇÂ¼ÒÑ¾­·¢ËÍÁË¶àÉÙ */
+        int addrSize = sizeof(client_addr);
+        while (1)
+        {
+            readSize = fread(buf, 1, BUFFSIZE, fp);
+            if (0 == readSize)
+            {
+                break;
+            }
+            sendSize = sendto(sockfd, (const char *)buf, readSize, MSG_NOSIGNAL, (struct sockaddr *)&client_addr, sizeof(client_addr));
+
+            recvfrom(sockfd, (char *)buf, BUFFSIZE, 0, (struct sockaddr *)&client_addr, &addrSize);
+            totalTrans += sendSize;
+        }
+
+        /* Íê³ÉÎÄ¼ş´«ÊäÈÎÎñ£¬·¢ËÍÌáÊ¾ÏûÏ¢ */
+        sendto(sockfd, "OK", 2, 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
+        printf("Complete send! Total trans %d bytes\n", totalTrans);
+        fclose(fp);
+    }
+    
+}
+
+/**
+ * @brief ´¦ÀíUDPÄ£Ê½ÎÄ¼şÉÏ´«²Ù×÷
+ * @param sockfd--tcpÁ¬½ÓÌ×½Ó×ÖÃèÊö·û, sockaddr_in--¿Í»§¶ËµØÖ·, msg[][]--½ÓÊÕµ½µÄÏûÏ¢
+ * @return void
+ * */
+void udp_upload_func(int sockfd, struct sockaddr_in client_addr, char msg[][BUFFSIZE])
+{
+    char tmp_response[BUFFSIZE] = "udp response";
+
+    FILE *fp;
+    char save_file[BUFFSIZE];   /* ´æ´¢Â·¾¶+ÎÄ¼şÃû */
+    sprintf(save_file, "%s%s", ser_place_of_file, msg[1]);
+    fp = fopen(save_file, "wb+"); /* ¶ş½øÖÆ´ò¿ª ²Á³ıÔ´ÎÄ¼ş */
+    int totalBytes = 0; /* ÓÃÓÚÍ³¼Æ×Ü×Ö½ÚÊı */
+    int addrSize = sizeof(client_addr);
+
+    while (1)
+    {
+        char buf[BUFFSIZE] = {0};
+        int len = recvfrom(sockfd, (char *)buf, BUFFSIZE, 0, (struct sockaddr *)&client_addr, &addrSize);
+
+        /* ¿Í»§¶Ë´«ÊäÍê³É */
+        if (0 == strcmp(buf, "OK"))
+        {
+            if (totalBytes == atoi(msg[2]))
+            {
+                /* Ğ´Èë×Ö½ÚÊıÏàÍ¬£¬µ«¿ÉÄÜ´æÔÚ°ü±»´Û¸ÄµÄÇé¿ö£¬Ğ£Ñéhashcode */
+                fclose(fp);
+                char hashCode[41];
+                char respons_msg[BUFFSIZE];
+                /* ÎÄ¼şĞ£ÑéÄ£¿é´ıÊµÏÖ */
+                // strcpy(hashCode, get_sha1_from_file(save_file)); /* ±¾µØ¼ÆËãĞ´ÈëÍê³ÉµÄÎÄ¼şµÄhashcode */
+                strcpy(hashCode, MY_FAKE_HASHCODE);
+                if (0 == strcmp(hashCode, msg[3]))
+                {
+                    sprintf(respons_msg, "File Complete True; Sha1: %s", hashCode);       
+                }
+                else
+                {
+                    sprintf(respons_msg, "File Complete False; Sha1: %s", hashCode);
+                }
+                sendto(sockfd, respons_msg, BUFFSIZE, 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
+                break;
+            }
+        }
+
+        fwrite(buf, 1, len, fp);
+        /* Ğ´Èë³É¹¦£¬·¢ËÍÓ¦´ò°ü¸ø¿Í»§¶Ë */
+        sendto(sockfd, tmp_response, BUFFSIZE, 0, (struct sockaddr *)&client_addr, sizeof(client_addr));
+        totalBytes += len;
+    }
 }
