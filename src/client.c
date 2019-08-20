@@ -241,6 +241,7 @@ void connect_client(char cmd_str[][64])
     {
         /* 缺少ip地址参数 */
         printf("\tPlease Enter one command like this : 'connect IpAddress'\r\n");
+        return ;
     }
     // else if (0 == strcasecmp(cmd_str[1], SERVER_ADDR))
     else 
@@ -249,7 +250,7 @@ void connect_client(char cmd_str[][64])
 
         /* tcp mode */
         close(cli_tcp_sockfd);  /* 关闭已有tcp socket */
-        if ((cli_tcp_sockfd = init_tcp_client(cmd_str[1])) < 0)
+        if ((cli_tcp_sockfd = init_tcp_client(cmd_str[1])) == -1)
         {
             /* 初始化错误，无法连接 */
             printf("\tCan't create TCP conncet! Check if server online!\r\n");
@@ -262,7 +263,7 @@ void connect_client(char cmd_str[][64])
         /* udp mode */
         close(cli_udp_sockfd);  /* 关闭已有udp socket */
         memset(&cli_udp_sockaddr, 0, sizeof(cli_udp_sockaddr));
-        if ((cli_udp_sockfd = init_udp_client(cmd_str[1])) < 0)
+        if ((cli_udp_sockfd = init_udp_client(cmd_str[1])) == -1)
         {
             /* 初始化错误，无法连接 */
             printf("\tFail to get UDP server! Check if server online!\r\n");   
@@ -271,6 +272,7 @@ void connect_client(char cmd_str[][64])
         {
             printf("Success to get UDP server! \n");
         }
+        return ;
     }
     
 }
@@ -292,13 +294,13 @@ int init_tcp_client(char *ip_addr)
 
     if (-1 == (sockfd = socket(AF_INET, SOCK_STREAM, 0)))
     {
-        perror("fail to create socket");
+        perror("\tfail to create socket");
         return ERROR;
     }
 
     if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr)) < 0)
     {
-        perror("fail to connect!");
+        perror("\tfail to connect!");
         return ERROR;
     }
 
@@ -326,7 +328,7 @@ int init_udp_client(char *ip_addr)
 
     if (-1 == (sockfd = socket(AF_INET, SOCK_DGRAM, 0)))
     {
-        perror("fail to create UDP socket");
+        perror("\tfail to create UDP socket");
         return ERROR;
     }
     
